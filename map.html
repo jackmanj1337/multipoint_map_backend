@@ -361,31 +361,54 @@
       // we probe for the highest available zoom in this region.
       const TRANSPARENT_TILE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
-      // Build a tile layer that auto-detects the native max zoom at runtime.
-      // On the first tile error above zoom 14, it caps maxNativeZoom to one
-      // level below the failing zoom and redraws so Leaflet upscales existing
-      // tiles instead of requesting unavailable ones.
-      function makeAdaptiveLayer(url, options) {
+      const ESRI_URL     = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+      const ESRI_OPTIONS = { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19 };
+
+      // Creates a tile layer that:
+      //   - Auto-caps maxNativeZoom when high-zoom tiles are unavailable (upscales instead).
+      //   - Falls back to Esri satellite after 3 low-zoom failures, which indicates an
+      //     auth or quota error rather than a zoom-depth gap.
+      function makeTileLayer(url, options, fallback) {
         const layer = L.tileLayer(url, { ...options, errorTileUrl: TRANSPARENT_TILE });
         let capped = false;
+        let lowZoomFails = 0;
+        let switched = false;
+
         layer.on('tileerror', function (e) {
-          if (capped || e.coords.z <= 14) return;
-          capped = true;
-          this.options.maxNativeZoom = e.coords.z - 1;
-          this.redraw();
+          if (switched) return;
+
+          if (e.coords.z <= 14) {
+            // Low-zoom failure → auth / quota problem, not a missing tile zoom.
+            if (++lowZoomFails >= 3 && fallback) {
+              switched = true;
+              map.removeLayer(this);
+              makeTileLayer(fallback.url, fallback.options).addTo(map);
+            }
+            return;
+          }
+
+          // High-zoom failure → upscale from the last available zoom instead.
+          if (!capped) {
+            capped = true;
+            this.options.maxNativeZoom = e.coords.z - 1;
+            this.redraw();
+          }
         });
+
         return layer;
       }
 
       // Mapbox Satellite — higher resolution than Esri in most regions.
-      makeAdaptiveLayer(
+      // Falls back to Esri automatically if the Mapbox quota is exhausted.
+      makeTileLayer(
         `https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90?access_token=${MAPBOX_TOKEN}`,
         {
           attribution: '© <a href="https://www.mapbox.com/about/maps/">Mapbox</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
           maxZoom: 22,
           tileSize: 512,
           zoomOffset: -1,
-        }
+        },
+        { url: ESRI_URL, options: ESRI_OPTIONS }
       ).addTo(map);
 
 
