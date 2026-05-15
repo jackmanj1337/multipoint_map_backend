@@ -181,7 +181,9 @@
      * Returns an empty array if the param is missing or malformed.
      */
     function parseMarkers() {
-      const params  = new URLSearchParams(window.location.search);
+      // Data is passed in the URL fragment (#markers=...) so the server never
+      // sees the full URL — avoids HTTP 414 on static hosts like GitHub Pages.
+      const params  = new URLSearchParams(window.location.hash.slice(1));
       const raw     = params.get('markers');
 
       if (!raw) return [];
