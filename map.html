@@ -352,6 +352,11 @@
       });
 
       // 3. Add the OpenStreetMap tile layer
+      // ── Mapbox public access token ──────────────────────────────────────
+      // Replace this value with your own token from mapbox.com/account/access-tokens
+      // Restrict the token to this site's domain in the Mapbox dashboard.
+      const MAPBOX_TOKEN = 'YOUR_MAPBOX_TOKEN';
+
       // Transparent 1×1 PNG — shown instead of a broken-tile icon while
       // we probe for the highest available zoom in this region.
       const TRANSPARENT_TILE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
@@ -372,10 +377,15 @@
         return layer;
       }
 
-      // Esri World Imagery (satellite) — free, no API key required.
+      // Mapbox Satellite — higher resolution than Esri in most regions.
       makeAdaptiveLayer(
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19 }
+        `https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90?access_token=${MAPBOX_TOKEN}`,
+        {
+          attribution: '© <a href="https://www.mapbox.com/about/maps/">Mapbox</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          maxZoom: 22,
+          tileSize: 512,
+          zoomOffset: -1,
+        }
       ).addTo(map);
 
 
