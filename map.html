@@ -352,20 +352,37 @@
       });
 
       // 3. Add the OpenStreetMap tile layer
+      // Transparent 1×1 PNG — shown instead of a broken-tile icon while
+      // we probe for the highest available zoom in this region.
+      const TRANSPARENT_TILE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+      // Build a tile layer that auto-detects the native max zoom at runtime.
+      // On the first tile error above zoom 14, it caps maxNativeZoom to one
+      // level below the failing zoom and redraws so Leaflet upscales existing
+      // tiles instead of requesting unavailable ones.
+      function makeAdaptiveLayer(url, options) {
+        const layer = L.tileLayer(url, { ...options, errorTileUrl: TRANSPARENT_TILE });
+        let capped = false;
+        layer.on('tileerror', function (e) {
+          if (capped || e.coords.z <= 14) return;
+          capped = true;
+          this.options.maxNativeZoom = e.coords.z - 1;
+          this.redraw();
+        });
+        return layer;
+      }
+
       // Esri World Imagery (satellite) — free, no API key required.
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
-        maxNativeZoom: 17,
-        maxZoom: 19,
-      }).addTo(map);
+      makeAdaptiveLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19 }
+      ).addTo(map);
 
       // Esri labeled overlay (roads, place names) on top of the satellite base.
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-        attribution: '',
-        maxNativeZoom: 17,
-        maxZoom: 19,
-        pane: 'overlayPane',
-      }).addTo(map);
+      makeAdaptiveLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+        { attribution: '', maxZoom: 19, pane: 'overlayPane' }
+      ).addTo(map);
 
       // 4. Add markers and get their combined bounding box
       const bounds = addMarkers(map, markers);
