@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--
+  ============================================================
+  map.html — Telegram Mini App: Interactive Leaflet Map
+  ============================================================
+
+  WHAT THIS FILE DOES:
+    This is the web page that opens inside Telegram when a user
+    taps the "View Map" button sent by your bot. It reads GPS
+    coordinates from the URL query string, plots them as markers
+    on an interactive Leaflet.js map, and fits the view to show
+    all markers automatically.
+
+  HOW TO USE IT:
+    Your bot constructs a URL like:
+      https://yoursite.com/map.html?markers=LABEL,LAT,LNG|LABEL,LAT,LNG
+
+    Example with 3 markers:
+      https://yoursite.com/map.html?markers=Eiffel Tower,48.8584,2.2945|Big Ben,51.5007,-0.1246|Colosseum,41.8902,12.4922
+
+  HOSTING OPTIONS (all free):
+    1. GitHub Pages  — push this file to a repo, enable Pages in settings
+    2. Vercel        — drag-and-drop deploy at vercel.com
+    3. Netlify       — drag-and-drop deploy at netlify.com
+    4. Your own VPS  — serve with Nginx or Caddy
+
+    ⚠️  Telegram requires HTTPS. All options above provide this
+        automatically. Plain HTTP will not work.
+
+  DEPENDENCIES:
+    - Leaflet.js 1.9.4 (loaded from CDN, no install needed)
+    - OpenStreetMap tiles (free, no API key required)
+
+  CUSTOMISATION:
+    - Marker colour:     change the `background` in buildIcon()
+    - Tile style:        swap the tileLayer URL for a Mapbox/Stadia style
+    - Popup content:     edit the bindPopup() call in addMarkers()
+    - Map padding:       adjust the fitBounds padding values
+  ============================================================
+  -->
+
+  <meta charset="UTF-8" />
+
+  <!--
+    viewport meta is important for Telegram Mini Apps —
+    it prevents unwanted zooming on mobile devices.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Map</title>
+
+  <!-- Leaflet CSS — provides map container and control styles -->
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+  />
+
+  <style>
+    /*
+      Reset and full-screen layout.
+      The map must fill the entire Mini App window — Telegram
+      gives us 100vw × 100vh with no chrome around it.
+    */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    /* The map div must have an explicit height for Leaflet to render */
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+
+    /*
+      Error banner — shown if the URL is malformed or
+      no markers are found. Hidden by default.
+    */
+    #error-banner {
+      display: none;
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: #ff4757;
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+      white-space: nowrap;
+    }
+
+    /* Loading spinner — shown while the map tiles first load */
+    #loader {
+      position: absolute;
+      inset: 0;
+      background: #f0f0f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 500;
+      transition: opacity 0.4s;
+    }
+    #loader.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #ddd;
+      border-top-color: #2AABEE;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+
+<body>
+
+  <!-- Loading overlay — hidden once tiles have loaded -->
+  <div id="loader"><div class="spinner"></div></div>
+
+  <!-- Error banner — shown for bad/missing URL params -->
+  <div id="error-banner">⚠️ No valid markers found in URL</div>
+
+  <!-- The map container — Leaflet renders into this div -->
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+  <script>
+    /*
+    ==============================================================
+    URL PARAMETER FORMAT
+    ==============================================================
+
+    Expected query string:
+      ?markers=LABEL,LAT,LNG|LABEL,LAT,LNG|...
+
+    Rules:
+      - Each marker is separated by a pipe character: |
+      - Each marker has exactly 3 comma-separated parts:
+          1. Label (string, shown in the popup)
+          2. Latitude (decimal degrees)
+          3. Longitude (decimal degrees)
+      - Spaces in labels are fine — URL-encode them as %20 or +
+      - Maximum ~80 markers before the URL gets too long.
+        For larger sets, replace this with a fetch() call to
+        your bot's backend API (see SCALING NOTE at the bottom).
+
+    Examples:
+      Single marker:
+        ?markers=Home,51.505,-0.09
+
+      Multiple markers:
+        ?markers=Home,51.505,-0.09|Office,51.510,-0.077|Cafe,51.500,-0.124
+    ==============================================================
+    */
+
+    /**
+     * parseMarkers()
+     *
+     * Reads the `markers` query parameter from the current URL
+     * and returns an array of { label, lat, lng } objects.
+     *
+     * Returns an empty array if the param is missing or malformed.
+     */
+    function parseMarkers() {
+      const params  = new URLSearchParams(window.location.search);
+      const raw     = params.get('markers');
+
+      if (!raw) return [];
+
+      return raw
+        .split('|')                          // split into individual marker strings
+        .map(entry => entry.trim())
+        .filter(Boolean)                     // remove empty strings
+        .map(entry => {
+          // Each entry: "Label,lat,lng"
+          // We split on comma but allow the label to contain commas
+          // by only splitting into max 3 parts (from the right).
+          const parts = entry.split(',');
+          if (parts.length < 3) return null;
+
+          const lng   = parseFloat(parts.pop());   // last part = longitude
+          const lat   = parseFloat(parts.pop());   // second-to-last = latitude
+          const label = parts.join(',').trim();     // everything else = label
+
+          // Validate coordinates are real numbers in range
+          if (
+            isNaN(lat) || isNaN(lng) ||
+            lat < -90  || lat > 90   ||
+            lng < -180 || lng > 180
+          ) return null;
+
+          return { label, lat, lng };
+        })
+        .filter(Boolean);                    // remove any nulls from bad entries
+    }
+
+
+    /**
+     * buildIcon()
+     *
+     * Creates a custom Leaflet divIcon — a teardrop-shaped pin
+     * with a number inside (1-based index).
+     *
+     * @param {number} index  — 0-based marker index
+     * @returns {L.DivIcon}
+     */
+    function buildIcon(index) {
+      const number = index + 1;
+      return L.divIcon({
+        className: '',   // prevent Leaflet's default white box
+        html: `
+          <div style="
+            position: relative;
+            width: 30px;
+            height: 42px;
+          ">
+            <!-- Teardrop pin shape -->
+            <div style="
+              width: 30px;
+              height: 30px;
+              background: #2AABEE;
+              border-radius: 50% 50% 50% 0;
+              transform: rotate(-45deg);
+              border: 2px solid #fff;
+              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+              position: absolute;
+              top: 0; left: 0;
+            "></div>
+            <!-- Number label (rotated back upright) -->
+            <span style="
+              position: absolute;
+              top: 5px; left: 0;
+              width: 30px;
+              text-align: center;
+              color: #fff;
+              font-size: 12px;
+              font-weight: 700;
+              font-family: -apple-system, sans-serif;
+              line-height: 1;
+              pointer-events: none;
+            ">${number}</span>
+            <!-- Pin tail -->
+            <div style="
+              width: 6px;
+              height: 12px;
+              background: #2AABEE;
+              position: absolute;
+              bottom: 0;
+              left: 12px;
+              clip-path: polygon(0 0, 100% 0, 50% 100%);
+            "></div>
+          </div>
+        `,
+        iconSize:    [30, 42],
+        iconAnchor:  [15, 42],   // anchor at the bottom tip of the pin
+        popupAnchor: [0, -44],   // popup appears above the pin
+      });
+    }
+
+
+    /**
+     * addMarkers()
+     *
+     * Adds an array of marker objects to the map and returns
+     * a Leaflet LatLngBounds object covering all of them.
+     *
+     * @param {L.Map}   map
+     * @param {Array}   markers  — [{ label, lat, lng }, ...]
+     * @returns {L.LatLngBounds}
+     */
+    function addMarkers(map, markers) {
+      const bounds = L.latLngBounds();
+
+      markers.forEach((m, i) => {
+        const latlng = [m.lat, m.lng];
+
+        L.marker(latlng, { icon: buildIcon(i) })
+          .addTo(map)
+          .bindPopup(`
+            <div style="font-family:-apple-system,sans-serif;min-width:120px">
+              <strong style="font-size:14px">${m.label}</strong><br>
+              <span style="font-size:11px;color:#888">
+                ${m.lat.toFixed(5)}, ${m.lng.toFixed(5)}
+              </span>
+            </div>
+          `);
+
+        bounds.extend(latlng);
+      });
+
+      return bounds;
+    }
+
+
+    /*
+    ==============================================================
+    MAIN — initialise the map
+    ==============================================================
+    */
+    (function init() {
+      // 1. Parse markers from the URL
+      const markers = parseMarkers();
+
+      if (markers.length === 0) {
+        // Show error, hide loader, fall back to a world view
+        document.getElementById('error-banner').style.display = 'block';
+        document.getElementById('loader').classList.add('hidden');
+
+        // Still initialise the map so the page isn't blank
+        L.map('map').setView([20, 0], 2);
+        return;
+      }
+
+      // 2. Create the Leaflet map
+      //    zoomControl: true — the +/- buttons (default position: top-left)
+      //    scrollWheelZoom: true — allows pinch-to-zoom on mobile too
+      const map = L.map('map', {
+        zoomControl:      true,
+        scrollWheelZoom:  true,
+      });
+
+      // 3. Add the OpenStreetMap tile layer
+      //    Using the standard OSM tile server — free, no API key required.
+      //    For a different style, replace this URL. Some alternatives:
+      //      CartoDB Positron (light):
+      //        https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png
+      //      CartoDB Dark Matter:
+      //        https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      }).addTo(map);
+
+      // 4. Add markers and get their combined bounding box
+      const bounds = addMarkers(map, markers);
+
+      // 5. Fit the map view to show all markers with padding
+      //    maxZoom: 15 prevents zooming in too close for a single marker
+      map.fitBounds(bounds, {
+        padding: [40, 40],
+        maxZoom: 15,
+      });
+
+      // 6. Hide the loading spinner once tiles start rendering
+      map.once('load', () => {
+        document.getElementById('loader').classList.add('hidden');
+      });
+
+      // Fallback: hide loader after 2s in case the 'load' event misfires
+      setTimeout(() => {
+        document.getElementById('loader').classList.add('hidden');
+      }, 2000);
+    })();
+
+    /*
+    ==============================================================
+    SCALING NOTE — More than ~80 markers?
+    ==============================================================
+    If you need to pass a large number of coordinates, the URL
+    will become too long for some browsers/servers. Instead:
+
+    1. Have your bot store the coordinates in a database and
+       generate a short session ID.
+    2. Pass only the ID in the URL:
+         ?session=abc123
+    3. Fetch the coordinates from your API here:
+
+         const sessionId = new URLSearchParams(window.location.search).get('session');
+         const res  = await fetch(`https://yourapi.com/markers/${sessionId}`);
+         const data = await res.json();  // [{ label, lat, lng }, ...]
+         // then call addMarkers(map, data)
+
+    This also lets you update the pin list without changing the URL.
+    ==============================================================
+    */
+  </script>
+</body>
+</html>
