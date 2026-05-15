@@ -202,7 +202,9 @@
 
           const lng   = parseFloat(parts.pop());   // last part = longitude
           const lat   = parseFloat(parts.pop());   // second-to-last = latitude
-          const label = parts.join(',').trim();     // everything else = label
+          // decodeURIComponent handles %20 etc. that Telegram's WebView may not
+          // decode automatically via URLSearchParams.
+          const label = decodeURIComponent(parts.join(',').trim());
 
           // Validate coordinates are real numbers in range
           if (
@@ -211,7 +213,10 @@
             lng < -180 || lng > 180
           ) return null;
 
-          const color = (colors[i] && colors[i].startsWith('#')) ? colors[i] : '#2AABEE';
+          // Colors are sent as %23RRGGBB to avoid the '#' being treated as a
+          // URL fragment — decode before use.
+          const rawColor = colors[i] ? decodeURIComponent(colors[i]) : null;
+          const color = (rawColor && rawColor.startsWith('#')) ? rawColor : '#2AABEE';
 
           return { label, lat, lng, color };
         })
