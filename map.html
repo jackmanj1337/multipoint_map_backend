@@ -351,56 +351,15 @@
         scrollWheelZoom:  true,
       });
 
-      // 3. Add the OpenStreetMap tile layer
-      // ── MapTiler API key ────────────────────────────────────────────────
-      // Replace this value with your own key from maptiler.com/account/keys
-      // Restrict the key to this site's domain in the MapTiler dashboard.
-      const MAPTILER_KEY = 'YOUR_MAPTILER_KEY';
-
-      // Transparent 1×1 PNG — shown instead of a broken-tile icon while
-      // we probe for the highest available zoom in this region.
-      const TRANSPARENT_TILE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-
-      const ESRI_URL     = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-      const ESRI_OPTIONS = { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19 };
-
-      // Creates a tile layer that:
-      //   - Auto-caps maxNativeZoom when high-zoom tiles are unavailable (upscales instead).
-      //   - Falls back to Esri satellite after 3 low-zoom failures, which indicates an
-      //     auth or quota error rather than a zoom-depth gap.
-      function makeTileLayer(url, options, fallback) {
-        const layer = L.tileLayer(url, { ...options, errorTileUrl: TRANSPARENT_TILE });
-        let capped = false;
-        let lowZoomFails = 0;
-        let switched = false;
-
-        layer.on('tileerror', function (e) {
-          if (switched) return;
-
-          if (e.coords.z <= 14) {
-            // Low-zoom failure → auth / quota problem, not a missing tile zoom.
-            if (++lowZoomFails >= 3 && fallback) {
-              switched = true;
-              map.removeLayer(this);
-              makeTileLayer(fallback.url, fallback.options).addTo(map);
-            }
-            return;
-          }
-
-          // High-zoom failure → upscale from the last available zoom instead.
-          if (!capped) {
-            capped = true;
-            this.options.maxNativeZoom = e.coords.z - 1;
-            this.redraw();
-          }
-        });
-
-        return layer;
-      }
-
-      // Esri World Imagery — best coverage for this region, no API key required.
-      makeTileLayer(ESRI_URL, ESRI_OPTIONS).addTo(map);
-
+      // 3. Add the tile layer
+      // Esri World Imagery — satellite, no API key required.
+      // maxNativeZoom:17 upscales tiles at higher zooms instead of showing
+      // "Map data not yet available" in areas where Esri has no deeper imagery.
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+        maxNativeZoom: 17,
+        maxZoom: 19,
+      }).addTo(map);
 
       // 4. Add markers and get their combined bounding box
       const bounds = addMarkers(map, markers);
