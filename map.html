@@ -398,19 +398,8 @@
         return layer;
       }
 
-      // MapTiler Satellite — higher resolution than Esri, hard usage limits on free tier.
-      // @2x retina tiles keep imagery sharp on high-DPI screens (iPhone, etc).
-      // Falls back to Esri automatically if the MapTiler quota is exhausted.
-      makeTileLayer(
-        `https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}@2x.jpg?key=${MAPTILER_KEY}`,
-        {
-          attribution: '© <a href="https://www.maptiler.com/copyright/">MapTiler</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-          maxZoom: 22,
-          tileSize: 512,
-          zoomOffset: -1,
-        },
-        { url: ESRI_URL, options: ESRI_OPTIONS }
-      ).addTo(map);
+      // Esri World Imagery — best coverage for this region, no API key required.
+      makeTileLayer(ESRI_URL, ESRI_OPTIONS).addTo(map);
 
 
       // 4. Add markers and get their combined bounding box
