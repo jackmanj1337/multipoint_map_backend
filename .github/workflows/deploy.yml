@@ -21,8 +21,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Inject Mapbox token
-        run: sed -i "s/YOUR_MAPBOX_TOKEN/${{ secrets.MAPBOX_TOKEN }}/g" map.html
+      - name: Inject MapTiler key
+        run: sed -i "s/YOUR_MAPTILER_KEY/${{ secrets.MAPTILER_KEY }}/g" map.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

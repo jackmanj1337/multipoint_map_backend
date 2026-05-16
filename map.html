@@ -352,10 +352,10 @@
       });
 
       // 3. Add the OpenStreetMap tile layer
-      // ── Mapbox public access token ──────────────────────────────────────
-      // Replace this value with your own token from mapbox.com/account/access-tokens
-      // Restrict the token to this site's domain in the Mapbox dashboard.
-      const MAPBOX_TOKEN = 'YOUR_MAPBOX_TOKEN';
+      // ── MapTiler API key ────────────────────────────────────────────────
+      // Replace this value with your own key from maptiler.com/account/keys
+      // Restrict the key to this site's domain in the MapTiler dashboard.
+      const MAPTILER_KEY = 'YOUR_MAPTILER_KEY';
 
       // Transparent 1×1 PNG — shown instead of a broken-tile icon while
       // we probe for the highest available zoom in this region.
@@ -398,15 +398,13 @@
         return layer;
       }
 
-      // Mapbox Satellite — higher resolution than Esri in most regions.
-      // Falls back to Esri automatically if the Mapbox quota is exhausted.
+      // MapTiler Satellite — higher resolution than Esri, hard usage limits on free tier.
+      // Falls back to Esri automatically if the MapTiler quota is exhausted.
       makeTileLayer(
-        `https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90?access_token=${MAPBOX_TOKEN}`,
+        `https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,
         {
-          attribution: '© <a href="https://www.mapbox.com/about/maps/">Mapbox</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          attribution: '© <a href="https://www.maptiler.com/copyright/">MapTiler</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
           maxZoom: 22,
-          tileSize: 512,
-          zoomOffset: -1,
         },
         { url: ESRI_URL, options: ESRI_OPTIONS }
       ).addTo(map);
